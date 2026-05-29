@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MATRIX</title>
+  <meta name="theme-color" content="#121212">
+
+<link rel="icon" type="image/png" sizes="192x192" href="matrix2026_neon.png">
+<link rel="apple-touch-icon" href="matrix2026_neon.png">
+
+<link rel="manifest" href="manifest.json">
+    <style>
+        body { background: #000; color: #0f0; font-family: monospace; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .sticky-bar { background: #0a0a0a; padding: 10px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid #333; z-index: 10; flex-shrink: 0; }
+        
+        /* Container for the editor and numbers - Adjusted to prevent bottom cutoff */
+        .editor-wrapper { display: flex; flex: 1; overflow: hidden; background: #050505; position: relative; border-bottom: 50px solid transparent; }
+        
+        #line-numbers { 
+            width: 45px; background: #0a0a0a; color: #444; padding: 15px 5px; 
+            text-align: right; font-size: 16px; line-height: 1.5; 
+            user-select: none; border-right: 1px solid #222; overflow: hidden;
+            display: none; /* Default hidden as requested */
+        }
+
+        #editor { 
+            flex: 1; background: transparent; color: #0f0; border: none; 
+            padding: 15px; font-size: 16px; line-height: 1.5; outline: none; 
+            resize: none; overflow-y: auto; box-sizing: border-box; tab-size: 4; 
+        }
+
+        #filename { background: #111; color: #0f0; border: 1px solid #333; padding: 5px; width: 120px; }
+        button { background: #000; color: #0f0; border: 1px solid #0f0; padding: 5px 8px; cursor: pointer; font-weight: bold; font-size: 12px; }
+        button:active { background: #0f0; color: #000; }
+        
+        .footer { background: #0a0a0a; border-top: 1px solid #333; position: fixed; bottom: 0; width: 100%; height: 50px; box-sizing: border-box; }
+        
+        .switch { position: relative; display: inline-block; width: 34px; height: 20px; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #222; border: 1px solid #0f0; transition: .4s; }
+        .slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 3px; bottom: 3px; background: #0f0; transition: .4s; }
+        input:checked + .slider:before { transform: translateX(14px); }
+    </style>
+</head>
+<body>
+
+    <div class="sticky-bar">
+        <label class="switch"><input type="checkbox" id="storage-toggle"><span class="slider"></span></label>
+        <span id="toggle-label" style="font-size: 10px;">PHONE</span>
+        <input type="text" id="filename" placeholder="script.js">
+        <button onclick="addTextNumbers()"># ON</button>
+        <button onclick="removeTextNumbers()"># OFF</button>
+        <button id="run-top" style="background:#0055ff; border-color:#00f2ff; color:white;">RUN</button>
+    </div>
+
+    <div class="editor-wrapper">
+        <div id="line-numbers">1</div>
+        <textarea id="editor" placeholder="Write code here..." spellcheck="false"></textarea>
+    </div>
+
+    <div class="sticky-bar footer">
+        <div id="stats" style="font-size: 10px; color: #444;">L: 1</div>
+        <select id="saved-list" style="background: #111; color: #0f0; border: 1px solid #444; max-width: 120px;"></select>
+        <div style="margin-left: auto; display: flex; gap: 8px;">
+            <button onclick="findInText()" style="background:#555; border-color:#aaa; color:white;">FIND</button>
+            <button onclick="copyCode()" style="background:#444; border-color:#888; color:white;">COPY</button>
+            <button id="run-bottom" style="background:#0055ff; border-color:#00f2ff; color:white;">RUN</button>
+            <button onclick="handleGlobalSave()" style="background:#28a745; border-color:#fff;">SAVE</button>
+        </div>
+    </div>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const lineNumbers = document.getElementById('line-numbers');
+        const filenameInput = document.getElementById('filename');
+        const storageToggle = document.getElementById('storage-toggle');
+        const savedList = document.getElementById('saved-list');
+
+        // Search tracking variables
+        let lastSearchQuery = "";
+        let currentSearchIndex = 0;
+
+        function updateStats() {
+            const lines = editor.value.split('\n').length;
+            document.getElementById('stats').innerText = "L: " + lines;
+        }
+
+        function addTextNumbers() {
+            const lines = editor.value.split('\n');
+            const numberedLines = lines.map((line, index) => {
+                if (!/^\d+: /.test(line)) {
+                    return (index + 1) + ": " + line;
+                }
+                return line;
+            });
+            editor.value = numberedLines.join('\n');
+            updateStats();
+        }
+
+        function removeTextNumbers() {
+            const lines = editor.value.split('\n');
+            const cleanedLines = lines.map(line => line.replace(/^\d+: /, ''));
+            editor.value = cleanedLines.join('\n');
+            updateStats();
+        }
+
+        function copyCode() {
+            editor.select();
+            document.execCommand('copy');
+            window.getSelection().removeAllRanges();
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "COPIED!";
+            setTimeout(() => { btn.innerText = originalText; }, 1500);
+        }
+
+        function findInText() {
+            const text = editor.value;
+            if (!text) return;
+
+            let query = prompt("Enter text to find:", lastSearchQuery);
+            if (query === null) return;
+            query = query.trim();
+            if (!query) return;
+
+            // If query changed, reset loop index
+            if (query !== lastSearchQuery) {
+                lastSearchQuery = query;
+                currentSearchIndex = 0;
+            }
+
+            const lowerText = text.toLowerCase();
+            const lowerQuery = query.toLowerCase();
+            let positions = [];
+            let pos = lowerText.indexOf(lowerQuery);
+
+            while (pos !== -1) {
+                positions.push(pos);
+                pos = lowerText.indexOf(lowerQuery, pos + 1);
+            }
+
+            if (positions.length === 0) {
+                alert("Text not found!");
+                return;
+            }
+
+            // Loop back to the start if index overshoots the array size
+            if (currentSearchIndex >= positions.length) {
+                currentSearchIndex = 0;
+            }
+
+            const targetPos = positions[currentSearchIndex];
+            editor.focus();
+            editor.setSelectionRange(targetPos, targetPos + query.length);
+
+            // Center view scrolling calculation
+            const lineHeight = 24;
+            const linesUpToMatch = text.substring(0, targetPos).split('\n').length - 1;
+            editor.scrollTop = linesUpToMatch * lineHeight - 40;
+
+            currentSearchIndex++;
+        }
+
+        editor.addEventListener('input', updateStats);
+        
+        editor.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const s = editor.selectionStart;
+                editor.value = editor.value.substring(0, s) + "    " + editor.value.substring(editor.selectionEnd);
+                editor.selectionEnd = s + 4;
+            }
+        });
+
+        const triggerRun = () => {
+            const content = editor.value;
+            const blob = new Blob([content], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+        };
+
+        document.getElementById('run-top').onclick = triggerRun;
+        document.getElementById('run-bottom').onclick = triggerRun;
+
+        function getMimeType(fileName) {
+            const ext = fileName.split('.').pop().toLowerCase();
+            const types = { 'html': 'text/html', 'js': 'application/javascript', 'css': 'text/css' };
+            return types[ext] || 'text/plain';
+        }
+
+        window.handleGlobalSave = () => {
+            let name = filenameInput.value.trim() || "untitled.html";
+            if (!name.includes('.')) name += ".html";
+            if (storageToggle.checked) {
+                let history = JSON.parse(localStorage.getItem('app_history') || '[]');
+                history = [{name, content: editor.value, ts: Date.now()}, ...history.filter(i => i.name !== name)].slice(0, 20);
+                localStorage.setItem('app_history', JSON.stringify(history));
+                renderHistory();
+            } else {
+                const a = document.createElement("a");
+                a.download = name;
+                a.href = window.URL.createObjectURL(new Blob([editor.value], { type: getMimeType(name) }));
+                a.click();
+            }
+        };
+
+        function renderHistory() {
+            let history = JSON.parse(localStorage.getItem('app_history') || '[]');
+            savedList.innerHTML = '<option value="">-- History --</option>';
+            history.forEach(i => savedList.add(new Option(i.name, i.name)));
+        }
+
+        storageToggle.onchange = () => { document.getElementById('toggle-label').innerText = storageToggle.checked ? "APP" : "PHONE"; };
+        
+        savedList.onchange = () => {
+            let history = JSON.parse(localStorage.getItem('app_history') || '[]');
+            let item = history.find(i => i.name === savedList.value);
+            if (item) { editor.value = item.content; filenameInput.value = item.name; updateStats(); }
+        };
+
+        renderHistory();
+    </script>
+</body>
+  </html>
